@@ -1,0 +1,49 @@
+---
+# tasks for the nftables firewall
+
+- name: Set fact with trusted hosts ips
+  ansible.builtin.set_fact:
+    trusted_hosts_ips: "{{ nftables_extras.trusted_hosts | map('extract', hostvars, ['ansible_' + interfaces.private.name, 'ipv4', 'address']) | difference([hostvars[inventory_hostname]['ansible_' + interfaces.private.name]['ipv4']['address']]) }}"
+  when: nftables_extras.trusted_hosts is defined
+
+- name: Write IPs of trusted nodes into another file
+  ansible.builtin.copy:
+    content: "#!/usr/sbin/nft -f\ndefine ip_trusted_hosts = { {{ trusted_hosts_ips | join(', ') }} };\n"
+    dest: /etc/nftables.ip_trusted_hosts.nft
+    owner: root
+    mode: 0644
+  register: nftables_extra_conf
+  when: nftables_extras.trusted_hosts is defined
+  become: yes
+
+- name: Update config file
+  ansible.builtin.template:
+    src: etc/nftables.conf
+    dest: /etc/nftables.conf
+    owner: root
+    mode: 0644
+  register: nftables_conf
+  become: yes
+
+- name: Enable nftables
+  ansible.builtin.service: name=nftables enabled=yes
+  become: yes
+
+- name: Restart nftables
+  ansible.builtin.service: name=nftables state=restarted
+  when: nftables_conf.changed or nftables_extra_conf.changed
+  become: yes
+
+- name: Restart tailscale
+  ansible.builtin.service: name=tailscaled state=restarted
+  when: (nftables_conf.changed or nftables_extra_conf.changed) and 'ts_agents' in group_names
+  become: yes
+
+- name: Restart docker
+  ansible.builtin.service: name=docker state=restarted
+  when: (nftables_conf.changed or nftables_extra_conf.changed) and 'swarm_nodes' in group_names
+  become: yes
+
+- name: Start nftables
+  ansible.builtin.service: name=nftables state=started
+  become: yes

@@ -1,0 +1,6 @@
+---
+# tasks file for firewall
+
+- name: nftables
+  include_tasks: nftables.yml
+  tags: nftables
